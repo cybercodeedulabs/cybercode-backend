@@ -43,4 +43,32 @@ router.post("/study-session", verifyTokenMiddleware, async (req, res) => {
   }
 });
 
+// GET /progress/me/:courseSlug
+router.get("/me/:courseSlug", verifyTokenMiddleware, async (req, res) => {
+  const uid = req.userToken?.uid;
+  const { courseSlug } = req.params;
+
+  if (!uid || !courseSlug) {
+    return res.status(400).json({ error: "missing fields" });
+  }
+
+  try {
+    // Fetch completed lessons for this course
+    const completed = await pool.query(
+      `SELECT lesson_slug 
+       FROM course_progress 
+       WHERE user_uid=$1 AND course_slug=$2`,
+      [uid, courseSlug]
+    );
+
+    res.json({
+      completedLessons: completed.rows.map((r) => r.lesson_slug),
+    });
+  } catch (err) {
+    console.error("progress/me failed", err);
+    res.status(500).json({ error: "failed" });
+  }
+});
+
+
 export default router;
