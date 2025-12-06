@@ -18,6 +18,9 @@ app.use(express.json());
 // basic health
 app.get("/", (req, res) => res.json({ status: "Cybercode API running" }));
 
+// 🔥 Render Health Check Endpoint
+app.get("/healthz", (req, res) => res.send("OK"));
+
 app.use("/auth", authRoutes);
 app.use("/user", userRoutes);
 app.use("/progress", progressRoutes);
