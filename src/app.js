@@ -10,6 +10,7 @@ import userRoutes from "./routes/user.js";
 import progressRoutes from "./routes/progress.js";
 import projectRoutes from "./routes/projects.js";
 import goalsRoutes from "./routes/goals.js";
+import userDocsRoutes from "./routes/userDocs.js";
 
 const app = express();
 app.use(cors({
@@ -27,6 +28,7 @@ app.get("/healthz", (req, res) => res.send("OK"));
 
 app.use("/auth", authRoutes);
 app.use("/user", userRoutes);
+app.use("/userdocs", userDocsRoutes);
 app.use("/progress", progressRoutes);
 app.use("/projects", projectRoutes);
 app.use("/goals", goalsRoutes);
