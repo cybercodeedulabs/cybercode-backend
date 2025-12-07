@@ -38,30 +38,20 @@ router.post("/save", verifyTokenMiddleware, async (req, res) => {
     await pool.query(
       `
       INSERT INTO user_goals 
-      (
-        user_uid, 
-        current_status, 
-        motivation, 
-        target_role, 
-        salary_expectation,
-        hours_per_week, 
-        deadline_months, 
-        learning_style, 
-        skills_json,
-        updated_at, 
-        created_at
-      )
+      (user_uid, current_status, motivation, target_role, salary_expectation,
+       hours_per_week, deadline_months, learning_style, skills_json,
+       updated_at, created_at)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW())
       ON CONFLICT (user_uid) DO UPDATE SET
-        current_status      = EXCLUDED.current_status,
-        motivation          = EXCLUDED.motivation,
-        target_role         = EXCLUDED.target_role,
-        salary_expectation  = EXCLUDED.salary_expectation,
-        hours_per_week      = EXCLUDED.hours_per_week,
-        deadline_months     = EXCLUDED.deadline_months,
-        learning_style      = EXCLUDED.learning_style,
-        skills_json         = EXCLUDED.skills_json,
-        updated_at          = NOW()
+        current_status = EXCLUDED.current_status,
+        motivation = EXCLUDED.motivation,
+        target_role = EXCLUDED.target_role,
+        salary_expectation = EXCLUDED.salary_expectation,
+        hours_per_week = EXCLUDED.hours_per_week,
+        deadline_months = EXCLUDED.deadline_months,
+        learning_style = EXCLUDED.learning_style,
+        skills_json = EXCLUDED.skills_json,
+        updated_at = NOW()
       `,
       [
         uid,
@@ -69,10 +59,10 @@ router.post("/save", verifyTokenMiddleware, async (req, res) => {
         motivation,
         targetRole,
         salaryExpectation,
-        Number(hoursPerWeek) || 0,
-        Number(deadlineMonths) || 0,
+        Number(hoursPerWeek),
+        Number(deadlineMonths),
         learningStyle,
-        skills ? JSON.stringify(skills) : "{}"
+        skills ? JSON.stringify(skills) : "{}",
       ]
     );
 
@@ -94,14 +84,14 @@ router.get("/me", verifyTokenMiddleware, async (req, res) => {
     const r = await pool.query(
       `
       SELECT 
-        current_status     AS "currentStatus",
+        current_status AS "currentStatus",
         motivation,
-        target_role        AS "targetRole",
+        target_role AS "targetRole",
         salary_expectation AS "salaryExpectation",
-        hours_per_week     AS "hoursPerWeek",
-        deadline_months    AS "deadlineMonths",
-        learning_style     AS "learningStyle",
-        skills_json        AS "skills",
+        hours_per_week AS "hoursPerWeek",
+        deadline_months AS "deadlineMonths",
+        learning_style AS "learningStyle",
+        skills_json AS "skills",
         updated_at,
         created_at
       FROM user_goals
@@ -112,11 +102,17 @@ router.get("/me", verifyTokenMiddleware, async (req, res) => {
 
     const row = r.rows[0] || null;
 
-    // safely parse skills JSON
+    // row.skills may already be an object (JSONB) or a string.
     if (row && row.skills) {
-      try {
-        row.skills = typeof row.skills === "string" ? JSON.parse(row.skills) : row.skills;
-      } catch {
+      if (typeof row.skills === "string") {
+        try {
+          row.skills = JSON.parse(row.skills);
+        } catch {
+          row.skills = {};
+        }
+      } else if (typeof row.skills === "object") {
+        // already OK
+      } else {
         row.skills = {};
       }
     }
