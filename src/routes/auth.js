@@ -2,6 +2,7 @@
 import express from "express";
 import { pool } from "../db/db.js";
 import { signUserToken } from "../middleware/auth.js";
+import { verifyTokenMiddleware } from "../middleware/auth.js";
 
 const router = express.Router();
 
@@ -37,6 +38,26 @@ router.post("/login", async (req, res) => {
   } catch (err) {
     console.error("auth/login failed", err);
     res.status(500).json({ error: "login failed" });
+  }
+});
+
+/**
+ * GET /auth/me
+ * Protected. Returns the user row based on token.
+ * Useful for client-side hydration when token exists.
+ */
+router.get("/me", verifyTokenMiddleware, async (req, res) => {
+  const uid = req.userToken?.uid;
+  if (!uid) return res.status(400).json({ error: "invalid token payload" });
+
+  try {
+    const q = `SELECT uid, name, email, photo, is_premium, has_certification_access, has_server_access, created_at FROM users WHERE uid = $1`;
+    const r = await pool.query(q, [uid]);
+    if (r.rowCount === 0) return res.status(404).json({ error: "user not found" });
+    return res.json({ user: r.rows[0] });
+  } catch (err) {
+    console.error("auth/me failed", err);
+    return res.status(500).json({ error: "failed" });
   }
 });
 
