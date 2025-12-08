@@ -18,8 +18,8 @@ router.get("/:uid", async (req, res) => {
     const enrolled = await pool.query("SELECT course_slug FROM enrolled_courses WHERE user_uid=$1", [uid]);
     const courses = enrolled.rows.map(r => r.course_slug);
 
-    // projects count
-    const proj = await pool.query("SELECT id, title, description, timestamp, created_at FROM generated_projects WHERE user_uid=$1 ORDER BY created_at DESC", [uid]);
+    // projects — INCLUDE raw_json so frontend can hydrate full blueprint
+    const proj = await pool.query("SELECT id, title, description, timestamp, raw_json, created_at FROM generated_projects WHERE user_uid=$1 ORDER BY created_at DESC", [uid]);
 
     res.json({
       user: u.rows[0],
