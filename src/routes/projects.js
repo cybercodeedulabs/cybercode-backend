@@ -5,6 +5,48 @@ import { verifyTokenMiddleware } from "../middleware/auth.js";
 
 const router = express.Router();
 
+function normalizeRawJson(raw) {
+  if (!raw || typeof raw !== "object") return null;
+
+  const fixString = (str) => {
+    if (typeof str !== "string") return str;
+
+    let v = str.trim();
+
+    // Fix half-open arrays
+    if (v === "[" || v === "[,") return [];
+
+    // Fix half-open objects
+    if (v === "{" || v === "{,") return {};
+
+    // Remove trailing commas before closing bracket
+    v = v.replace(/,\s*([\]}])/g, "$1");
+
+    // Attempt JSON.parse
+    try {
+      return JSON.parse(v);
+    } catch {
+      return v; // fallback
+    }
+  };
+
+  const cleaned = {};
+
+  for (const key of Object.keys(raw)) {
+    const value = raw[key];
+
+    if (typeof value === "string") {
+      cleaned[key] = fixString(value);
+    } else {
+      cleaned[key] = value;
+    }
+  }
+
+  return cleaned;
+}
+
+
+
 /**
  * ---------------------------------------------------------
  * POST /projects/save
@@ -15,7 +57,6 @@ const router = express.Router();
 router.post("/save", verifyTokenMiddleware, async (req, res) => {
   const uid = req.userToken?.uid;
 
-  // Accept both camelCase and snake_case
   const {
     title,
     description,
@@ -23,13 +64,21 @@ router.post("/save", verifyTokenMiddleware, async (req, res) => {
     raw_json
   } = req.body;
 
-  const finalRaw = rawJson || raw_json || null;
+  // Accept both cases
+  let finalRaw = rawJson || raw_json || null;
+
+  // CLEAN & VALIDATE RAW JSON
+  try {
+    finalRaw = normalizeRawJson(finalRaw);
+  } catch (e) {
+    console.error("normalize failed", e);
+    finalRaw = null;
+  }
 
   if (!uid) return res.status(400).json({ error: "auth required" });
 
   try {
     const ts = Date.now();
-
     const q = `
       INSERT INTO generated_projects (user_uid, title, description, raw_json, timestamp)
       VALUES ($1, $2, $3, $4, $5)
@@ -50,6 +99,7 @@ router.post("/save", verifyTokenMiddleware, async (req, res) => {
     res.status(500).json({ error: "failed" });
   }
 });
+
 
 
 /**
