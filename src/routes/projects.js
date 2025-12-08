@@ -14,23 +14,33 @@ const router = express.Router();
  */
 router.post("/save", verifyTokenMiddleware, async (req, res) => {
   const uid = req.userToken?.uid;
-  const { title, description, rawJson } = req.body;
+
+  // Accept both camelCase and snake_case
+  const {
+    title,
+    description,
+    rawJson,
+    raw_json
+  } = req.body;
+
+  const finalRaw = rawJson || raw_json || null;
 
   if (!uid) return res.status(400).json({ error: "auth required" });
 
   try {
+    const ts = Date.now();
+
     const q = `
       INSERT INTO generated_projects (user_uid, title, description, raw_json, timestamp)
       VALUES ($1, $2, $3, $4, $5)
       RETURNING id
     `;
 
-    const ts = Date.now();
     const r = await pool.query(q, [
       uid,
       title || null,
       description || null,
-      rawJson ? JSON.stringify(rawJson) : null,
+      finalRaw ? JSON.stringify(finalRaw) : null,
       ts
     ]);
 
@@ -40,6 +50,7 @@ router.post("/save", verifyTokenMiddleware, async (req, res) => {
     res.status(500).json({ error: "failed" });
   }
 });
+
 
 /**
  * ---------------------------------------------------------
