@@ -4,7 +4,7 @@ import { pool } from "../db/db.js";
 import { signUserToken } from "../middleware/auth.js";
 import { verifyTokenMiddleware } from "../middleware/auth.js";
 
-import fetch from "node-fetch";
+// import fetch from "node-fetch";
 
 const router = express.Router();
 
