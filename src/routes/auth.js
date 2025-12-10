@@ -13,10 +13,7 @@ const router = express.Router();
  */
 router.post("/login", async (req, res) => {
   const { uid, name, email, photo } = req.body;
-
-  if (!uid || !email) {
-    return res.status(400).json({ error: "uid and email required" });
-  }
+  if (!uid || !email) return res.status(400).json({ error: "uid and email required" });
 
   try {
     const q = `
@@ -27,13 +24,7 @@ router.post("/login", async (req, res) => {
       RETURNING uid, name, email, photo, is_premium, created_at;
     `;
 
-    const result = await pool.query(q, [
-      uid,
-      name || null,
-      email,
-      photo || null,
-    ]);
-
+    const result = await pool.query(q, [uid, name || null, email, photo || null]);
     const userRow = result.rows[0];
 
     const token = signUserToken({
@@ -53,34 +44,21 @@ router.post("/login", async (req, res) => {
 /**
  * GET /auth/me
  * Protected. Returns the user row based on token.
+ * Useful for client-side hydration when token exists.
  */
 router.get("/me", verifyTokenMiddleware, async (req, res) => {
   const uid = req.userToken?.uid;
   if (!uid) return res.status(400).json({ error: "invalid token payload" });
 
   try {
-    const q = `
-      SELECT uid, name, email, photo, is_premium, has_certification_access, has_server_access, created_at
-      FROM users
-      WHERE uid = $1
-    `;
+    const q = `SELECT uid, name, email, photo, is_premium, has_certification_access, has_server_access, created_at FROM users WHERE uid = $1`;
     const r = await pool.query(q, [uid]);
-
-    if (r.rowCount === 0) {
-      return res.status(404).json({ error: "user not found" });
-    }
-
+    if (r.rowCount === 0) return res.status(404).json({ error: "user not found" });
     return res.json({ user: r.rows[0] });
   } catch (err) {
     console.error("auth/me failed", err);
     return res.status(500).json({ error: "failed" });
   }
 });
-
-/* -------------------------------------------------------------
-   ❌ REMOVED: Google OAuth2 "code exchange" flow
-   ✔ GIS Redirect Mode DOES NOT use `code`
-   ✔ AuthCallback.jsx already handles credential → backend login
--------------------------------------------------------------- */
 
 export default router;
