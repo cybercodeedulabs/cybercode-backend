@@ -3,7 +3,7 @@ import express from "express";
 import { pool } from "../db/db.js";
 import { signUserToken } from "../middleware/auth.js";
 import { verifyTokenMiddleware } from "../middleware/auth.js";
-import fetch from "node-fetch"; // needed for Google token exchange
+// import fetch from "node-fetch"; // needed for Google token exchange
 
 const router = express.Router();
 
