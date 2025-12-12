@@ -11,6 +11,9 @@ import progressRoutes from "./routes/progress.js";
 import projectRoutes from "./routes/projects.js";
 import goalsRoutes from "./routes/goals.js";
 import userDocsRoutes from "./routes/userDocs.js";
+import iamRoutes from "./routes/iam.js";
+import cloudRoutes from "./cloud/routes/cloud.js";
+
 
 const app = express();
 app.use(cors({
@@ -32,6 +35,9 @@ app.use("/userdocs", userDocsRoutes);
 app.use("/progress", progressRoutes);
 app.use("/projects", projectRoutes);
 app.use("/goals", goalsRoutes);
+app.use("/api/iam", iamRoutes);
+app.use("/api/cloud", cloudRoutes);
+
 
 // startup DB test
 testConnection().then(() => {
