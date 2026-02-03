@@ -36,21 +36,25 @@ router.get("/:uid", async (req, res) => {
 // Body: { courseSlug }
 // Must be authenticated
 router.post("/enroll", verifyTokenMiddleware, async (req, res) => {
-  const uid = req.userToken?.uid;
+  const email = req.userToken?.email;
   const { courseSlug } = req.body;
 
-  if (!uid || !courseSlug) {
+  if (!email || !courseSlug) {
     return res.status(400).json({ error: "missing fields" });
   }
 
   try {
-    // 🔐 Ensure user exists (idempotent)
-    await pool.query(
-      `INSERT INTO users (uid, email)
-       VALUES ($1, $2)
-       ON CONFLICT (uid) DO NOTHING`,
-      [uid, req.userToken.email]
+    // 🔑 Resolve UID from users table using email
+    const userRes = await pool.query(
+      `SELECT uid FROM users WHERE email = $1`,
+      [email]
     );
+
+    if (userRes.rowCount === 0) {
+      return res.status(404).json({ error: "user not found" });
+    }
+
+    const uid = userRes.rows[0].uid;
 
     await pool.query(
       `INSERT INTO enrolled_courses (user_uid, course_slug)
@@ -65,6 +69,7 @@ router.post("/enroll", verifyTokenMiddleware, async (req, res) => {
     res.status(500).json({ error: "enroll failed" });
   }
 });
+
 
 
 export default router;
