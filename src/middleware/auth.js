@@ -16,14 +16,30 @@ const JWT_AUDIENCE = "cybercode-users";
 /* -------------------------------------------------------
    SIGN JWT
 -------------------------------------------------------- */
+/* -------------------------------------------------------
+   SIGN JWT  (FIXED)
+-------------------------------------------------------- */
 export function signUserToken(payload) {
-  // payload should contain at least { uid, email, name }
-  return jwt.sign(payload, JWT_SECRET, {
-    expiresIn: TOKEN_EXPIRY,
-    issuer: JWT_ISSUER,
-    audience: JWT_AUDIENCE,
-  });
+  if (!payload?.uid) {
+    throw new Error("JWT payload missing uid");
+  }
+
+  return jwt.sign(
+    {
+      uid: payload.uid,          // 🔥 FORCE top-level uid
+      email: payload.email,
+      name: payload.name,
+      photo: payload.photo,
+    },
+    JWT_SECRET,
+    {
+      expiresIn: TOKEN_EXPIRY,
+      issuer: JWT_ISSUER,
+      audience: JWT_AUDIENCE,
+    }
+  );
 }
+
 
 /* -------------------------------------------------------
    VERIFY JWT MIDDLEWARE
