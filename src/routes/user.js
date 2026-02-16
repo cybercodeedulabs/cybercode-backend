@@ -70,6 +70,4 @@ router.post("/enroll", verifyTokenMiddleware, async (req, res) => {
   }
 });
 
-
-
 export default router;

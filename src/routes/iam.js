@@ -2,22 +2,23 @@
 import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { Pool } from "pg";
+// import { Pool } from "pg";
+import { pool } from "../db/db.js"
 
 const router = express.Router();
 
-const { DATABASE_URL, JWT_SECRET, NODE_ENV } = process.env;
-
+// const { DATABASE_URL, JWT_SECRET, NODE_ENV } = process.env;
+const { JWT_SECRET, NODE_ENV } = process.env;
 // Hard fail if JWT is missing in production
 if (!JWT_SECRET && NODE_ENV === "production") {
   throw new Error("FATAL: JWT_SECRET missing in production environment");
 }
 
 // PostgreSQL Pool
-const pool = new Pool({
-  connectionString: DATABASE_URL,
-  ssl: NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
-});
+// const pool = new Pool({
+//   connectionString: DATABASE_URL,
+//   ssl: NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
+// });
 
 // -------- Helper functions --------
 function signToken(payload) {

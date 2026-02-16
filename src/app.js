@@ -2,7 +2,18 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-dotenv.config();
+//dotenv.config();
+
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({
+  path: path.resolve(__dirname, "../.env"),
+});
+console.log("ENV PATH:", path.resolve(__dirname, "../.env"));
 
 import { testConnection } from "./db/db.js";
 import authRoutes from "./routes/auth.js";
@@ -13,6 +24,8 @@ import goalsRoutes from "./routes/goals.js";
 import userDocsRoutes from "./routes/userDocs.js";
 import iamRoutes from "./routes/iam.js";
 import cloudRoutes from "./cloud/routes/cloud.js";
+import http from "http";
+import { initTerminalServer } from "./cloud/terminalServer.js";
 
 
 const app = express();
@@ -47,6 +60,14 @@ testConnection().then(() => {
 });
 
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
+
+// Create HTTP server
+const server = http.createServer(app);
+
+// Attach WebTerminal WebSocket
+initTerminalServer(server);
+
+// Start server
+server.listen(PORT, () => {
   console.log(`🚀 Cybercode backend running on port ${PORT}`);
 });

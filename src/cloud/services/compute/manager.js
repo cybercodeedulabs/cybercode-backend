@@ -8,7 +8,21 @@ const execAsync = promisify(exec);
 // ================= CONFIG =================
 const C3_HOST = "192.168.227.130";
 const C3_USER = "c3cloud";
-const SSH_TIMEOUT = 30000; // 30 sec safety timeout
+const SSH_TIMEOUT = 180000; // 30 sec safety timeout
+
+// ================= IMAGE WHITELIST =================
+
+const IMAGE_MAP = {
+  "ubuntu-22.04": "ubuntu-22.04",
+  "ubuntu-20.04": "ubuntu-20.04",
+
+  // Custom Lab Images (will be created on C3 host)
+  "python-lab": "c3-python-lab",
+  "golang-lab": "c3-golang-lab",
+  "devops-lab": "c3-devops-lab",
+  "docker-lab": "c3-docker-lab",
+  "security-lab": "c3-security-lab",
+};
 
 // ================= HELPERS =================
 
@@ -19,10 +33,10 @@ function buildSSHCommand(cmd) {
 function sanitizeContainerName(str = "") {
   return str
     .toLowerCase()
-    .replace(/[^a-z0-9-]/g, "")  // allow only a-z 0-9 -
-    .replace(/^-+/, "")         // remove leading -
-    .replace(/-+$/, "")         // remove trailing -
-    .slice(0, 40);              // safe length
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/^-+/, "")
+    .replace(/-+$/, "")
+    .slice(0, 40);
 }
 
 function generateInstanceName(ownerEmail, customName) {
@@ -38,6 +52,14 @@ function generateInstanceName(ownerEmail, customName) {
   return `c3-${base}-${suffix}`;
 }
 
+function normalizeImage(image) {
+  const normalized = IMAGE_MAP[image];
+  if (!normalized) {
+    throw new Error(`Unsupported image: ${image}`);
+  }
+  return normalized;
+}
+
 // ================= CORE FUNCTIONS =================
 
 export async function provisionInstanceOnHost(opts = {}) {
@@ -51,64 +73,78 @@ export async function provisionInstanceOnHost(opts = {}) {
   } = opts;
 
   const name = generateInstanceName(ownerEmail, customName);
+  const normalizedImage = normalizeImage(image);
 
-  // --quiet avoids interactive output
-  const launchCmd = `lxc launch ${image} ${name} --quiet`;
+//  const launchCmd = `lxc launch ${normalizedImage} ${name} --quiet`;
+const launchCmd = `
+lxc launch ${normalizedImage} ${name} --quiet \
+-c limits.cpu=${cpu} \
+-c limits.memory=${ram}GB \
+-c limits.memory.swap=false \
+-d root,size=${disk}GB
+`;
+
 
   try {
     console.log("Launching:", name);
 
-    const { stdout, stderr } = await execAsync(
-      buildSSHCommand(launchCmd),
-      { timeout: SSH_TIMEOUT }
-    );
-
-    if (stderr) {
-      console.warn("LXC stderr:", stderr);
-    }
+    await execAsync(buildSSHCommand(launchCmd), {
+      timeout: SSH_TIMEOUT,
+    });
 
     return {
-      id: name,
       name,
-      image,
+      image: normalizedImage,
       cpu,
       ram,
       disk,
       status: "RUNNING",
-      freeTier: false,
       owner: ownerEmail,
     };
 
   } catch (err) {
-    console.error("Provision error:", err);
+    console.error("Provision error:", err?.stderr || err);
     throw new Error("Failed to provision container on C3 host");
   }
 }
 
-export async function terminateInstanceOnHost(instanceMeta) {
-  if (!instanceMeta?.id) {
-    throw new Error("Missing instance id");
+export async function terminateInstanceOnHost(containerName) {
+  if (!containerName) {
+    throw new Error("Missing container name");
   }
 
-  const deleteCmd = `lxc delete ${instanceMeta.id} --force --quiet`;
+  const safeName = sanitizeContainerName(containerName);
 
   try {
+    // 🔎 First check if container exists
+    const checkCmd = `lxc info ${safeName}`;
+    await execAsync(buildSSHCommand(checkCmd), {
+      timeout: SSH_TIMEOUT,
+    });
+
+  } catch (err) {
+    console.error("Container not found on host:", safeName);
+    throw new Error("Container does not exist on host");
+  }
+
+  try {
+    const deleteCmd = `lxc delete ${safeName} --force --quiet`;
+
     await execAsync(buildSSHCommand(deleteCmd), {
       timeout: SSH_TIMEOUT,
     });
 
+    console.log("Deleted container:", safeName);
+
     return { success: true };
 
   } catch (err) {
-    console.error("Terminate error:", err);
-    throw new Error("Failed to terminate container");
+    console.error("Terminate error:", err?.stderr || err);
+    throw new Error("Failed to terminate container on host");
   }
 }
 
 export async function getHostUsageSummary() {
-  // For now static — later we will calculate via:
-  // lxc list + lxc info + disk usage
-
   return {
     cpuUsed: 0,
     cpuQuota: 64,

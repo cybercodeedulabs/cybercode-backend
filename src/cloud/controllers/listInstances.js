@@ -10,11 +10,25 @@ export async function listInstancesHandler(req, res) {
   if (!ownerEmail) return res.status(401).json({ error: "Unauthorized" });
 
   try {
-    const q = `SELECT id, owner_email AS owner, image, plan, cpu, ram, disk, free_tier AS "freeTier", status, created_at
-               FROM cloud_instances
-               WHERE owner_email = $1
-               ORDER BY created_at DESC`;
-    const { rows } = await pool.query(q, [ownerEmail]);
+    const q = `
+  SELECT
+    id,
+    owner_email AS owner,
+    image,
+    plan,
+    cpu,
+    ram,
+    disk,
+    free_tier AS "freeTier",
+    status,
+    created_at,
+    container_name AS name
+  FROM cloud_instances
+  WHERE owner_email = $1
+  ORDER BY created_at DESC
+`;
+
+          const { rows } = await pool.query(q, [ownerEmail]);
     return res.json({ instances: rows });
   } catch (err) {
     console.error("listInstancesHandler error:", err);
