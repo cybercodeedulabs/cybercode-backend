@@ -57,8 +57,9 @@ export function initTerminalServer(server) {
           "exec",
           container,
           "--",
-          "bash",
-          "-l"
+          "su",
+          "-",
+          "c3user"
         ],
         {
           name: "xterm-color",
