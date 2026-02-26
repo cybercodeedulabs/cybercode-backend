@@ -5,14 +5,18 @@ import { terminateInstanceOnHost } from "../services/compute/manager.js";
 
 /**
  * DELETE /api/cloud/instances/:id
- * Only owner or admin can remove.
+ * Multi-tenant safe:
+ * - developer → only own containers
+ * - org_admin → any container in same org
+ * - admin → any container
  */
 export async function terminateInstanceHandler(req, res) {
-  const ownerEmail = req.iam?.email;
+  const userId = req.iam?.id;
   const userRole = req.iam?.role;
+  const userOrgId = req.iam?.organization_id;
   const id = req.params.id;
 
-  if (!ownerEmail) return res.status(401).json({ error: "Unauthorized" });
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
   if (!id) return res.status(400).json({ error: "Missing id" });
 
   const client = await pool.connect();
@@ -20,10 +24,9 @@ export async function terminateInstanceHandler(req, res) {
   try {
     await client.query("BEGIN");
 
-    // 🔒 Lock row to prevent race conditions
     const { rows } = await client.query(
       `
-      SELECT id, owner_email, status, container_name
+      SELECT id, owner_user_id, organization_id, status, container_name
       FROM cloud_instances
       WHERE id = $1
       FOR UPDATE
@@ -38,7 +41,19 @@ export async function terminateInstanceHandler(req, res) {
 
     const inst = rows[0];
 
-    if (inst.owner_email !== ownerEmail && userRole !== "admin") {
+    // 🔒 Multi-tenant enforcement
+    const sameOrg = inst.organization_id === userOrgId;
+    const isOwner = inst.owner_user_id === userId;
+    const isAdmin = userRole === "admin";
+    const isOrgAdmin = userRole === "org_admin";
+
+    if (
+      !isAdmin &&
+      !(
+        (isOwner) ||
+        (isOrgAdmin && sameOrg)
+      )
+    ) {
       await client.query("ROLLBACK");
       return res.status(403).json({ error: "Forbidden" });
     }
@@ -48,50 +63,67 @@ export async function terminateInstanceHandler(req, res) {
       return res.status(409).json({ error: "Instance already terminating" });
     }
 
-    if (!inst.container_name) {
-      await client.query("ROLLBACK");
-      return res.status(500).json({ error: "Missing container name in DB" });
-    }
+    // If provisioning failed or container never created,
+// nothing exists on host — safe to delete DB record only
+if (!inst.container_name || inst.status === "failed") {
 
-    // Mark as terminating
+  await client.query(
+    `DELETE FROM cloud_instances WHERE id=$1`,
+    [id]
+  );
+
+  await client.query("COMMIT");
+
+  return res.json({
+    success: true,
+    usage: {
+      cpuUsed: 0,
+      storageUsed: 0,
+    },
+  });
+}
+
+    // Mark terminating
     await client.query(
       `UPDATE cloud_instances SET status=$1 WHERE id=$2`,
       ["terminating", id]
     );
 
-    // 🔥 Terminate on host using REAL container name
+    // Remove from host
     try {
       await terminateInstanceOnHost(inst.container_name);
     } catch (hostErr) {
       console.error("Host termination failed:", hostErr);
 
-      // Revert status
       await client.query(
         `UPDATE cloud_instances SET status=$1 WHERE id=$2`,
         ["running", id]
       );
 
       await client.query("ROLLBACK");
-
       return res.status(500).json({
         error: "Failed to terminate container on host",
       });
     }
 
-    // Delete from DB after successful host removal
+    // Delete record
     await client.query(
       `DELETE FROM cloud_instances WHERE id=$1`,
       [id]
     );
 
-    // ===== Usage Aggregation =====
-    const usageRes = await client.query(`
+    // 🔒 Org-scoped usage aggregation
+    const usageRes = await client.query(
+      `
       SELECT
         COALESCE(SUM(cpu),0) AS cpu_used,
         COALESCE(SUM(disk),0) AS storage_used
       FROM cloud_instances
-      WHERE status = 'running'
-    `);
+      WHERE status='running'
+      AND organization_id=$1
+      `,
+      [userOrgId]
+    );
 
     const cpuUsed = Number(usageRes.rows[0].cpu_used || 0);
     const storageUsed = Number(usageRes.rows[0].storage_used || 0);
@@ -102,9 +134,7 @@ export async function terminateInstanceHandler(req, res) {
       success: true,
       usage: {
         cpuUsed,
-        cpuQuota: 64,
         storageUsed,
-        storageQuota: 1024,
       },
     });
 

@@ -65,6 +65,7 @@ function normalizeImage(image) {
 export async function provisionInstanceOnHost(opts = {}) {
   const {
     ownerEmail = "unknown",
+    organizationId,
     customName,
     image = "ubuntu:22.04",
     cpu = 1,
@@ -75,9 +76,56 @@ export async function provisionInstanceOnHost(opts = {}) {
   const name = generateInstanceName(ownerEmail, customName);
   const normalizedImage = normalizeImage(image);
 
+// ================= ORG NETWORK ISOLATION =================
+
+if (!organizationId) {
+  throw new Error("Missing organizationId for network isolation");
+}
+
+const shortOrgId = organizationId.slice(0, 8);
+const networkName = `c3-org-${shortOrgId}`;
+const profileName = `c3-org-${shortOrgId}`;
+
+// Check network existence
+const networkCheckCmd = `lxc network show ${networkName}`;
+try {
+  await execAsync(buildSSHCommand(networkCheckCmd), { timeout: SSH_TIMEOUT });
+} catch {
+  const subnetBase = Math.floor(Math.random() * 200) + 10;
+  const createNetworkCmd = `
+    lxc network create ${networkName} \
+    ipv4.address=10.${subnetBase}.1.1/24 \
+    ipv4.nat=true \
+    ipv6.address=none
+  `;
+  await execAsync(buildSSHCommand(createNetworkCmd), {
+    timeout: SSH_TIMEOUT,
+  });
+}
+
+// Check profile existence
+const profileCheckCmd = `lxc profile show ${profileName}`;
+try {
+  await execAsync(buildSSHCommand(profileCheckCmd), { timeout: SSH_TIMEOUT });
+} catch {
+  await execAsync(buildSSHCommand(`lxc profile create ${profileName}`), {
+    timeout: SSH_TIMEOUT,
+  });
+
+  await execAsync(
+    buildSSHCommand(
+      `lxc profile device add ${profileName} eth0 nic network=${networkName}`
+    ),
+    { timeout: SSH_TIMEOUT }
+  );
+}
+
 //  const launchCmd = `lxc launch ${normalizedImage} ${name} --quiet`;
 const launchCmd = `
-lxc launch ${normalizedImage} ${name} --quiet \
+lxc launch ${normalizedImage} ${name} \
+--profile c3-restricted \
+--profile ${profileName} \
+--quiet \
 -c limits.cpu=${cpu} \
 -c limits.memory=${ram}GB \
 -c limits.memory.swap=false \

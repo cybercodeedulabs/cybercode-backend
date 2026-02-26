@@ -2,33 +2,56 @@
 import { pool } from "../../db/db.js";
 
 /**
- * Lists instances for the authenticated IAM user.
  * GET /api/cloud/instances
+ * Role-aware listing
  */
 export async function listInstancesHandler(req, res) {
-  const ownerEmail = req.iam?.email;
-  if (!ownerEmail) return res.status(401).json({ error: "Unauthorized" });
+  const userId = req.iam?.id;
+  const userRole = req.iam?.role;
+  const userOrgId = req.iam?.organization_id;
+
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
   try {
-    const q = `
-  SELECT
-    id,
-    owner_email AS owner,
-    image,
-    plan,
-    cpu,
-    ram,
-    disk,
-    free_tier AS "freeTier",
-    status,
-    created_at,
-    container_name AS name
-  FROM cloud_instances
-  WHERE owner_email = $1
-  ORDER BY created_at DESC
-`;
+    let query;
+    let values;
 
-          const { rows } = await pool.query(q, [ownerEmail]);
+    if (userRole === "admin") {
+      // Platform admin sees everything
+      query = `
+        SELECT id, owner_email AS owner, image, plan, cpu, ram, disk,
+               free_tier AS "freeTier", status, created_at,
+               container_name AS name
+        FROM cloud_instances
+        ORDER BY created_at DESC
+      `;
+      values = [];
+    } else if (userRole === "org_admin") {
+      // Org admin sees entire org
+      query = `
+        SELECT id, owner_email AS owner, image, plan, cpu, ram, disk,
+               free_tier AS "freeTier", status, created_at,
+               container_name AS name
+        FROM cloud_instances
+        WHERE organization_id = $1
+        ORDER BY created_at DESC
+      `;
+      values = [userOrgId];
+    } else {
+      // Developer sees only their own
+      query = `
+        SELECT id, owner_email AS owner, image, plan, cpu, ram, disk,
+               free_tier AS "freeTier", status, created_at,
+               container_name AS name
+        FROM cloud_instances
+        WHERE owner_user_id = $1
+        ORDER BY created_at DESC
+      `;
+      values = [userId];
+    }
+
+    const { rows } = await pool.query(query, values);
+
     return res.json({ instances: rows });
   } catch (err) {
     console.error("listInstancesHandler error:", err);

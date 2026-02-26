@@ -1,4 +1,3 @@
-// backend/src/cloud/controllers/freeInstance.js
 import { pool } from "../../db/db.js";
 import crypto from "crypto";
 
@@ -8,44 +7,150 @@ import crypto from "crypto";
  */
 export async function freeInstanceHandler(req, res) {
   const ownerEmail = req.iam?.email;
-  if (!ownerEmail) return res.status(401).json({ error: "Unauthorized" });
+  const ownerId = req.iam?.id;
+
+  if (!ownerEmail || !ownerId) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
 
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
 
-    // check existing free instance for user
-    const checkQ = `SELECT id FROM cloud_instances WHERE owner_email = $1 AND free_tier = true LIMIT 1`;
+    // ===========================
+    // 1️⃣ Fetch IAM + Org
+    // ===========================
+    const userQ = `
+      SELECT id, organization_id, trial_end, is_active
+      FROM iam_users
+      WHERE id = $1
+      LIMIT 1
+    `;
+    const userRes = await client.query(userQ, [ownerId]);
+
+    if (!userRes.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "IAM user not found" });
+    }
+
+    const user = userRes.rows[0];
+
+    if (!user.is_active) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ error: "Account inactive" });
+    }
+
+    if (user.trial_end && new Date(user.trial_end) < new Date()) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ error: "Trial expired" });
+    }
+
+    const orgQ = `
+      SELECT id, status, instance_quota, subscription_end
+      FROM organizations
+      WHERE id = $1
+      LIMIT 1
+    `;
+    const orgRes = await client.query(orgQ, [user.organization_id]);
+
+    if (!orgRes.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Organization not found" });
+    }
+
+    const org = orgRes.rows[0];
+
+    // 🛑 Suspension Guard
+if (org.status === "suspended") {
+  await client.query("ROLLBACK");
+  return res.status(403).json({ error: "Organization is suspended" });
+}
+
+// 🛑 Approval Guard
+if (org.status !== "approved") {
+  await client.query("ROLLBACK");
+  return res.status(403).json({ error: "Organization not approved" });
+}
+
+// 🛑 Subscription Expiry Guard
+if (org.subscription_end && new Date(org.subscription_end) < new Date()) {
+  await client.query("ROLLBACK");
+  return res.status(403).json({ error: "Organization subscription expired" });
+}
+
+    // Existing free instance check
+    const checkQ = `
+      SELECT id FROM cloud_instances
+      WHERE owner_email = $1
+      AND free_tier = true
+      LIMIT 1
+    `;
     const chk = await client.query(checkQ, [ownerEmail]);
-    if (chk.rows && chk.rows.length > 0) {
+
+    if (chk.rows.length > 0) {
       await client.query("ROLLBACK");
       return res.status(409).json({ error: "Free instance already created" });
     }
 
-    // create small free instance (1 vCPU, 1GB, 2GB disk)
+    // Org instance limit check
+    const countQ = `
+      SELECT COUNT(*) AS instance_count
+      FROM cloud_instances
+      WHERE organization_id = $1
+      AND status IN ('provisioning','running')
+    `;
+    const countRes = await client.query(countQ, [org.id]);
+    const instanceCount = Number(countRes.rows[0].instance_count || 0);
+
+    if (instanceCount >= org.instance_quota) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ error: "Organization instance quota reached" });
+    }
+
+    // Create free instance record
     const id = crypto.randomUUID();
-    const name = `free-${id.slice(-4)}`;
+
     const insertQ = `
-      INSERT INTO cloud_instances (id, owner_email, image, plan, cpu, ram, disk, free_tier, status, created_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      INSERT INTO cloud_instances (
+        id, owner_email, owner_user_id, organization_id,
+        image, plan, cpu, ram, disk,
+        free_tier, status, created_at
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
       RETURNING id, owner_email AS owner, image, plan, cpu, ram, disk, free_tier AS "freeTier", status, created_at
     `;
-    const values = [id, ownerEmail, "ubuntu-22.04", "student", 1, 1, 2, true, "running", new Date()];
+
+    const values = [
+      id,
+      ownerEmail,
+      ownerId,
+      org.id,
+      "ubuntu-22.04",
+      "student",
+      1,
+      1,
+      2,
+      true,
+      "running",
+      new Date(),
+    ];
+
     const { rows } = await client.query(insertQ, values);
     const created = rows[0];
-
-    // recompute usage
-    const usageQ = `SELECT COALESCE(SUM(cpu),0) AS cpu_used, COALESCE(SUM(disk),0) AS storage_used FROM cloud_instances`;
-    const ures = await client.query(usageQ);
-    const cpuUsed = Number(ures.rows[0].cpu_used || 0);
-    const storageUsed = Number(ures.rows[0].storage_used || 0);
 
     await client.query("COMMIT");
 
     return res.json({
       instance: created,
-      usage: { cpuUsed, cpuQuota: 64, storageUsed, storageQuota: 1024 },
+      usage: {
+        cpuUsed: 0,
+        cpuQuota: 1,
+        storageUsed: 0,
+        storageQuota: 5,
+      },
     });
+
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
     console.error("freeInstanceHandler error:", err);

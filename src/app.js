@@ -26,6 +26,7 @@ import iamRoutes from "./routes/iam.js";
 import cloudRoutes from "./cloud/routes/cloud.js";
 import http from "http";
 import { initTerminalServer } from "./cloud/terminalServer.js";
+import adminRoutes from "./routes/admin.js";
 
 
 const app = express();
@@ -50,7 +51,7 @@ app.use("/projects", projectRoutes);
 app.use("/goals", goalsRoutes);
 app.use("/api/iam", iamRoutes);
 app.use("/api/cloud", cloudRoutes);
-
+app.use("/api/admin", adminRoutes);
 
 // startup DB test
 testConnection().then(() => {
