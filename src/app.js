@@ -27,11 +27,29 @@ import cloudRoutes from "./cloud/routes/cloud.js";
 import http from "http";
 import { initTerminalServer } from "./cloud/terminalServer.js";
 import adminRoutes from "./routes/admin.js";
-
+import workshopRoutes from "./routes/workshop.js";
+import { verifySMTP } from "./services/mailer.js";
 
 const app = express();
+//app.use(cors({
+//  origin: process.env.CORS_ORIGIN,
+//  credentials: true
+//}));
+
+const allowedOrigins = [
+  "https://cybercodeedulabs.com",
+  "https://cybercodeedulabs-platform.netlify.app"
+];
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN,
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    } else {
+      return callback(new Error("CORS not allowed"), false);
+    }
+  },
   credentials: true
 }));
 
@@ -52,6 +70,8 @@ app.use("/goals", goalsRoutes);
 app.use("/api/iam", iamRoutes);
 app.use("/api/cloud", cloudRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/workshop", workshopRoutes);
+
 
 // startup DB test
 testConnection().then(() => {
@@ -69,6 +89,7 @@ const server = http.createServer(app);
 initTerminalServer(server);
 
 // Start server
-server.listen(PORT, () => {
-  console.log(`🚀 Cybercode backend running on port ${PORT}`);
+server.listen(PORT, async () => {
+  console.log(`Cybercode backend running on port ${PORT}`);
+  await verifySMTP();
 });
